@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wealth Builder 2025</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f4f4f9; }
+        nav button { padding: 10px 15px; margin-right: 5px; cursor: pointer; }
+        .screen { display: none; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-top: 20px; }
+        .active { display: block; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background-color: #0056b3; color: white; }
+        .highlight { color: red; font-weight: bold; }
+        .summary-box { margin-top: 20px; padding: 15px; background: #e9ecef; border-radius: 5px; }
+    </style>
+</head>
+<body>
+
+    <h2>Amit Sharma's Portfolio</h2>
+    <nav>
+        <button onclick="showScreen('screen1')">1. Comparison & Actions</button>
+        <button onclick="showScreen('screen2')">2. Current Holdings</button>
+        <button onclick="showScreen('screen3')">3. History</button>
+        <button onclick="showScreen('screen4')">4. Edit Plan</button>
+    </nav>
+
+    <div id="screen1" class="screen active">
+        <h3>Rebalancing Recommendations</h3>
+        <table id="comparisonTable">
+            <thead>
+                <tr>
+                    <th>Fund</th>
+                    <th>Plan %</th>
+                    <th>Today %</th>
+                    <th>Drift</th>
+                    <th>Action</th>
+                    <th>Amount (Rs)</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+        <div class="summary-box" id="summaryBox"></div>
+        <br>
+        <button onclick="saveRebalancing()" style="padding: 10px 20px; background: green; color: white; border: none; cursor: pointer;">Save Rebalancing Recommendation</button>
+    </div>
+
+    <div id="screen2" class="screen">
+        <h3>Current Investments</h3>
+        <table id="holdingsTable">
+            <thead><tr><th>Fund Name</th><th>Current Value (Rs)</th></tr></thead>
+            <tbody></tbody>
+        </table>
+        <h4 id="totalHoldingValue"></h4>
+    </div>
+
+    <div id="screen3" class="screen">
+        <h3>Past Recommendations</h3>
+        <table id="historyTable">
+            <thead><tr><th>Date</th><th>Portfolio Value</th><th>Status</th></tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <div id="screen4" class="screen">
+        <h3>Edit Recommended Plan</h3>
+        <table id="planTable">
+            <thead><tr><th>Fund Name</th><th>Target %</th></tr></thead>
+            <tbody></tbody>
+        </table>
+        <br>
+        <button onclick="updatePlan()" style="padding: 10px; cursor: pointer;">Recalculate & Save Plan</button>
+        <p id="planError" style="color: red;"></p>
+    </div>
+
+    <script>
+        let globalData = {};
+
+        function showScreen(id) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            if(id === 'screen3') loadHistory();
+        }
+
+        async function loadData() {
+            const res = await fetch('/api/portfolio/C001'); // C001 is Amit Sharma
+            globalData = await res.json();
+            renderScreen1();
+            renderScreen2();
+            renderScreen4();
+        }
+
+        function renderScreen1() {
+            const tbody = document.querySelector('#comparisonTable tbody');
+            tbody.innerHTML = '';
+            let totalBuy = 0, totalSell = 0;
+
+            globalData.comparison.forEach(item => {
+                let isReview = item.action === "REVIEW";
+                let row = `<tr>
+                    <td>${item.fund_name} ${!item.is_model_fund ? '<span class="highlight">(Not in plan)</span>' : ''}</td>
+                    <td>${item.target_pct ? item.target_pct.toFixed(1) + '%' : '-'}</td>
+                    <td>${item.current_pct.toFixed(1)}%</td>
+                    <td>${item.drift ? (item.drift > 0 ? '+' : '') + item.drift.toFixed(1) + '%' : '-'}</td>
+                    <td class="${isReview ? 'highlight' : ''}">${item.action}</td>
+                    <td>Rs ${item.amount.toLocaleString(undefined, {maximumFractionDigits: 0})}</td>
+                </tr>`;
+                tbody.innerHTML += row;
+
+                if(item.action === "BUY") totalBuy += item.amount;
+                if(item.action === "SELL") totalSell += item.amount;
+            });
+
+            document.getElementById('summaryBox').innerHTML = `
+                <p><strong>Total to BUY:</strong> Rs ${totalBuy.toLocaleString(undefined, {maximumFractionDigits: 0})}</p>
+                <p><strong>Total to SELL:</strong> Rs ${totalSell.toLocaleString(undefined, {maximumFractionDigits: 0})}</p>
+                <p><strong>Fresh money needed:</strong> Rs ${(totalBuy - totalSell).toLocaleString(undefined, {maximumFractionDigits: 0})}</p>
+            `;
+            
+            globalData.summary = { totalBuy, totalSell, netCash: totalBuy - totalSell };
+        }
+
+        function renderScreen2() {
+            const tbody = document.querySelector('#holdingsTable tbody');
+            tbody.innerHTML = '';
+            globalData.holdings.forEach(h => {
+                tbody.innerHTML += `<tr><td>${h.fund_name}</td><td>Rs ${h.current_value.toLocaleString()}</td></tr>`;
+            });
+            document.getElementById('totalHoldingValue').innerText = `Total Portfolio Value: Rs ${globalData.totalValue.toLocaleString()}`;
+        }
+
+        function renderScreen4() {
+            const tbody = document.querySelector('#planTable tbody');
+            tbody.innerHTML = '';
+            globalData.plan.forEach(p => {
+                tbody.innerHTML += `<tr>
+                    <td>${p.fund_name}</td>
+                    <td><input type="number" class="plan-input" data-id="${p.fund_id}" value="${p.allocation_pct}"> %</td>
+                </tr>`;
+            });
+        }
+
+        async function updatePlan() {
+            const inputs = document.querySelectorAll('.plan-input');
+            let total = 0;
+            let updates = [];
+            inputs.forEach(input => {
+                let val = parseFloat(input.value);
+                total += val;
+                updates.push({ fund_id: input.getAttribute('data-id'), allocation_pct: val });
+            });
+
+            if (total !== 100) {
+                document.getElementById('planError').innerText = "Validation Failed: Percentages must add up to exactly 100%!";
+                return;
+            }
+            document.getElementById('planError').innerText = "";
+
+            await fetch('/api/update-plan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ updates })
+            });
+            
+            alert("Plan updated and recalculated!");
+            loadData();
+            showScreen('screen1');
+        }
+
+        async function saveRebalancing() {
+            const payload = {
+                clientId: 'C001',
+                portfolioValue: globalData.totalValue,
+                totalBuy: globalData.summary.totalBuy,
+                totalSell: globalData.summary.totalSell,
+                netCash: globalData.summary.netCash,
+                items: globalData.comparison
+            };
+
+            await fetch('/api/rebalance', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            alert('Rebalancing recommendation saved successfully!');
+            loadHistory();
+        }
+
+        async function loadHistory() {
+            const res = await fetch('/api/history');
+            const history = await res.json();
+            const tbody = document.querySelector('#historyTable tbody');
+            tbody.innerHTML = '';
+            history.forEach(h => {
+                tbody.innerHTML += `<tr><td>${h.created_at}</td><td>Rs ${h.portfolio_value.toLocaleString()}</td><td>${h.status}</td></tr>`;
+            });
+        }
+
+        window.onload = loadData;
+    </script>
+</body>
+</html>
